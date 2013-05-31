@@ -57,7 +57,7 @@ class AkkaTransport(conn: ActorRef) extends TTransport with AkkaThriftConfig {
   }
 
   override def write(buf:Array[Byte], offset:Int, len:Int):Unit = {
-    conn ! Write(ByteString(buf.slice(offset, offset+len)))
+    conn ! WriteData(ByteString(buf.slice(offset, offset+len)))
   }
 
 }

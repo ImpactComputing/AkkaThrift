@@ -11,6 +11,7 @@ class AkkaThriftConnection(conn: ActorRef) extends Actor with ActorLogging with 
   var readQueue = Queue[(ActorRef, ReadFromBuffer)]()
   var readBuffer = ByteString()
   var connected = true
+  var receiving = true
 
   /* Start listening to the connection */
   override def preStart:Unit = {
@@ -18,28 +19,33 @@ class AkkaThriftConnection(conn: ActorRef) extends Actor with ActorLogging with 
   }
 
   def receive = {
-    case _:Tcp.ConnectionClosed =>
-      connected = false
+    case _:Tcp.ConnectionClosed => connected = false
 
-    case Tcp.Received(data) => 
+    case Tcp.Received(data) => {
       readBuffer ++= data
       sendQueued
+      manageReadBuffer
+    }
 
-    case rfb @ ReadFromBuffer(_, _) =>
+    case rfb @ ReadFromBuffer(_, _) => {
       readQueue = readQueue :+ (sender, rfb)
       sendQueued
+    }
     
-    case ConnectionIsAlive =>
-      sender ! connected
+    case ConnectionIsAlive => sender ! connected
 
-    case CloseConnection => 
+    case CloseConnection =>  {
       conn ! Tcp.Close
       context.stop(self)
+    }
+
+    // This needs to be changed to an ack, but this gets it off the ground
+    case WriteData(data) => conn ! Tcp.Write(data, ack = Tcp.NoAck)
   }
 
   // Make sure we store at least as much data as the request
   def maxBufferSize:Int = readQueue.headOption map {
-    case (s, ReadFromBuffer(off,amt)) => (off+amt).max(readBufferSize)
+    case (_, ReadFromBuffer(off,amt)) => (off+amt).max(readBufferSize)
   } getOrElse readBufferSize
 
   // Send out all queued read requests if we can
@@ -59,6 +65,18 @@ class AkkaThriftConnection(conn: ActorRef) extends Actor with ActorLogging with 
     val (newRead, newBuff) = loop(readQueue, readBuffer)
     readQueue = newRead
     readBuffer = newBuff 
+  }
+
+  // Toggles reading on/off depending if the buffer is full
+  def manageReadBuffer = {
+    val bufferFull = readBuffer.length >= maxBufferSize 
+    if(bufferFull & receiving) {
+      conn ! Tcp.SuspendReading
+      receiving = false
+    } else if(!(bufferFull | receiving)) {
+      conn ! Tcp.ResumeReading
+      receiving = true
+    }
   }
     
 }
