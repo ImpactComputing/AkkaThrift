@@ -5,7 +5,8 @@ import akka.util.ByteString
 sealed trait AkkaTransportRequests
 case class ConnectionIsAlive extends AkkaTransportRequests
 case class CloseConnection extends AkkaTransportRequests
-case class ReadFromBuffer(amount:Int, offset:Int) extends AkkaTransportRequests
+case class ReadFromBuffer(offset:Int, amount:Int) extends AkkaTransportRequests
+case class Write(data:ByteString) extends AkkaTransportRequests
 
 sealed trait AkkaTransportResponse
 case class ReadData(byte: ByteString)

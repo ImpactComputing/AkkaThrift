@@ -9,7 +9,7 @@ import org.apache.thrift.transport.TTransport
 import org.apache.thrift.transport.TTransportException
 
 import akka.actor._
-import akka.util.Timeout
+import akka.util.{Timeout,ByteString}
 import akka.pattern.ask
 
 class AkkaTransport(conn: ActorRef) extends TTransport with AkkaThriftConfig {
@@ -57,7 +57,7 @@ class AkkaTransport(conn: ActorRef) extends TTransport with AkkaThriftConfig {
   }
 
   override def write(buf:Array[Byte], offset:Int, len:Int):Unit = {
-
+    conn ! Write(ByteString(buf.slice(offset, offset+len)))
   }
 
 }
