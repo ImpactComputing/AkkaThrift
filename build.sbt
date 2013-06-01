@@ -11,7 +11,8 @@ libraryDependencies += "commons-lang" % "commons-lang" % "2.6"
 libraryDependencies ++= Seq("com.typesafe.akka" %% "akka-actor" % "2.2-M3",
 "com.typesafe.akka" %% "akka-remote" % "2.2-M3",
 "com.typesafe.akka" %% "akka-cluster-experimental" % "2.2-M3",
-"org.apache.thrift" % "libthrift" % "0.9.0"
+"org.apache.thrift" % "libthrift" % "0.9.0",
+"ch.qos.logback" % "logback-classic" % "1.0.6"
 )
 
 // Actual project details
