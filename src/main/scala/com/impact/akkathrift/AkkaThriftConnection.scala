@@ -36,6 +36,7 @@ class AkkaThriftConnection(conn: ActorRef) extends Actor with ActorLogging with 
 
     case CloseConnection =>  {
       conn ! Tcp.Close
+      log.debug("Closing client connection")
       context.stop(self)
     }
 

@@ -59,7 +59,7 @@ class AkkaThriftServerActor(proto: TProtocolFactory, proc: TProcessorFactory) ex
   import system.dispatcher
   def receive = {
     case Tcp.Connected(_,_) => {
-      log.info("New connection, spawning new child...")
+      log.debug("New connection, spawning new child...")
       val conn = sender
       val child = context.watch(system.actorOf(Props(new AkkaThriftConnection(conn))))
       conn ! Tcp.Register(child)
@@ -67,7 +67,7 @@ class AkkaThriftServerActor(proto: TProtocolFactory, proc: TProcessorFactory) ex
     }
 
     case Terminated(child) => {
-      log.info(s"Child $child terminated.")
+      log.debug(s"Child $child terminated.")
     }
   }
 
@@ -78,11 +78,12 @@ class AkkaThriftServerActor(proto: TProtocolFactory, proc: TProcessorFactory) ex
     val protocol  = proto.getProtocol(transport)
     val logger = log
     Future {
-      processor.process(protocol, protocol)
+      while(processor.process(protocol, protocol)) {}
     } andThen {
-      case Success(true) => logger.info("Finished request successfully")
-      case Success(false) => logger.info("Request Failed!")
+      case _ => transport.close()
+    } andThen {
+      case Success(()) => logger.debug("Request Finished successfully!")
       case Failure(ex) => logger.info(s"Request failed with $ex")
-    }
+    } 
   }
 }
