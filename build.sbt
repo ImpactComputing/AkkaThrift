@@ -15,6 +15,8 @@ libraryDependencies ++= Seq("com.typesafe.akka" %% "akka-actor" % "2.2-M3",
 "ch.qos.logback" % "logback-classic" % "1.0.6"
 )
 
+fork in run := true
+
 // Actual project details
 
 name := "AkkaThrift"
