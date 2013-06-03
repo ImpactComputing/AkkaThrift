@@ -8,12 +8,17 @@ import org.apache.thrift.protocol.TProtocol
 import org.apache.thrift.transport.TTransport
 
 class AkkaThriftServer(args:AkkaThriftServer.Args) extends TServer(args) {
+
   override def serve():Unit = {
     args.atss.listenWith(inputProtocolFactory_, processorFactory_)
   }
 }
 
-object AkkaThriftServer {
+object AkkaThriftServer extends AkkaThriftConfig {
   class Args(val atss:AkkaThriftServerSocket) extends TServer.AbstractServerArgs[Args](atss) {
   }
+  private[this] lazy val actorSystem_ = ActorSystem("AkkaThrift", conf)
+
+  def actorSystem = actorSystem_
+
 }

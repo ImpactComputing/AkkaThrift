@@ -4,20 +4,21 @@ import collection.immutable.Queue
 import concurrent.Future
 import concurrent.Await
 import concurrent.duration._
-import util.{Success,Failure}
+import util.{Try, Success,Failure}
 
 import java.net.InetSocketAddress
 
 import akka.io._
 import akka.actor.{IO=>AIO,_}
 import akka.pattern.ask
+import akka.routing.FromConfig
 
-import org.apache.thrift.transport.{TServerTransport,TTransport}
-import org.apache.thrift.protocol.{TProtocolFactory}
-import org.apache.thrift.{TProcessorFactory}
+import org.apache.thrift.transport.{TServerTransport,TTransport,TTransportException}
+import org.apache.thrift.protocol.{TProtocolFactory,TProtocol}
+import org.apache.thrift.{TProcessorFactory, TProcessor}
 
-class AkkaThriftServerSocket(addr:InetSocketAddress)(implicit system:ActorSystem) extends TServerTransport {
-  private[this] var sActor:Option[ActorRef] = None
+class AkkaThriftServerSocket(addr:InetSocketAddress)(implicit system:ActorSystem) extends TServerTransport with AkkaThriftConfig {
+  private[this] var router: Option[ActorRef] = None
   
   override def listen() = {
     throw new UnsupportedOperationException("Listen in its raw from is unsupported")
@@ -25,12 +26,18 @@ class AkkaThriftServerSocket(addr:InetSocketAddress)(implicit system:ActorSystem
 
   def listenWith(protoBuilder:TProtocolFactory, procBuilder:TProcessorFactory) = {
     close()
-    sActor = Some(system.actorOf(Props(new AkkaThriftServerActor(protoBuilder, procBuilder))))
-    sActor.map(IO(Tcp) ! Tcp.Bind(_, addr))
+
+    // Create the router
+    val router = Some(system.actorOf(Props(classOf[AkkaThriftServerActor], 
+                                           protoBuilder, 
+                                           procBuilder).withRouter(FromConfig()),
+                                     "akka-thrift-handler"))
+
+    router.map(IO(Tcp) ! Tcp.Bind(_, addr))
   }
 
   // Not sure how to close a channel, so I'm guessing close
-  override def close():Unit = sActor.foreach({
+  override def close():Unit = router.foreach({
     IO(Tcp) ! Tcp.Unbind
     _ ! 'Stop
   })
@@ -61,9 +68,9 @@ class AkkaThriftServerActor(proto: TProtocolFactory, proc: TProcessorFactory) ex
     case Tcp.Connected(_,_) => {
       log.debug("New connection, spawning new child...")
       val conn = sender
-      val child = context.watch(system.actorOf(Props(new AkkaThriftConnection(conn))))
+      val child = context.watch(system.actorOf(Props(classOf[AkkaThriftConnection], conn)))
       conn ! Tcp.Register(child)
-      process(child)
+      startProcessor(child)
     }
 
     case Terminated(child) => {
@@ -71,19 +78,30 @@ class AkkaThriftServerActor(proto: TProtocolFactory, proc: TProcessorFactory) ex
     }
   }
 
-  def process(child:ActorRef) = {
-
+  def startProcessor(child:ActorRef) = {
     val transport = new AkkaTransport(child)
     val processor = proc.getProcessor(transport)
     val protocol  = proto.getProtocol(transport)
-    val logger = log
-    Future {
-      while(processor.process(protocol, protocol)) {}
-    } andThen {
-      case _ => transport.close()
-    } andThen {
-      case Success(()) => logger.debug("Request Finished successfully!")
-      case Failure(ex) => logger.info(s"Request failed with $ex")
-    } 
+    system.actorOf(Props(classOf[AkkaThriftProcessorActor], protocol, processor, transport))
+  }
+}
+
+class AkkaThriftProcessorActor(protocol: TProtocol, processor: TProcessor, transport:TTransport) extends Actor with ActorLogging {
+  override def preStart:Unit = self ! 'Continue
+  def receive = {
+    case 'Continue => 
+      Try(processor.process(protocol, protocol)) match {
+        case Success(true) =>
+          self ! 'Continue
+        case Success(false) =>
+          self ! 'Stop
+        case Failure(ex) =>
+          log.warning(s"Exception during processing: $ex")
+          self ! 'Stop
+      }
+
+    case 'Stop =>
+      transport.close()
+      context.stop(self)
   }
 }

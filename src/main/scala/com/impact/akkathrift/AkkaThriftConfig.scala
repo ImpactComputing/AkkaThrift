@@ -1,9 +1,15 @@
 package com.impact.akkathrift
 
+import com.typesafe.config.ConfigFactory
 import concurrent.duration._
 
 trait AkkaThriftConfig {
+  lazy val conf = {
+    val c = ConfigFactory.load()
+    c.getConfig("AkkaThrift").withFallback(c)
+  }
+
   //TODO: config all of these
-  val waitDelay = 30.seconds
-  val readBufferSize:Int= 2097152 // 2 mb
+  lazy val waitDelay = conf.getInt("thrift.timeout-delay").seconds
+  lazy val readBufferSize = conf.getInt("thrift.read-buffer")
 }
