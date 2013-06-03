@@ -18,8 +18,8 @@ object Driver {
   def main(args: Array[String]) {
     assert(args.nonEmpty)
     val address = new InetSocketAddress(args.head.toInt)
+    implicit val actorSystem = AkkaThriftServer.actorSystem
 
-    implicit val system = ActorSystem("Test")
     val atss = new AkkaThriftServerSocket(address)
     val proc = new Test.Processor(new TestImpl())
     val server = new AkkaThriftServer(
