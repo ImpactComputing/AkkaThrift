@@ -95,6 +95,8 @@ class AkkaThriftProcessorActor(protocol: TProtocol, processor: TProcessor, trans
           self ! 'Continue
         case Success(false) =>
           self ! 'Stop
+        case Failure(ex:TTransportException) =>
+          self ! 'Stop
         case Failure(ex) =>
           log.warning(s"Exception during processing: $ex")
           self ! 'Stop

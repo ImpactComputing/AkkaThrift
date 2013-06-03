@@ -19,7 +19,10 @@ class AkkaThriftConnection(conn: ActorRef) extends Actor with ActorLogging with 
   }
 
   def receive = {
-    case _:Tcp.ConnectionClosed => connected = false
+    case _:Tcp.ConnectionClosed => {
+      connected = false
+      readQueue.map(_._1).distinct.map(_ ! ConnectionClosed)
+    }
 
     case Tcp.Received(data) => {
       readBuffer ++= data
@@ -27,7 +30,7 @@ class AkkaThriftConnection(conn: ActorRef) extends Actor with ActorLogging with 
       manageReadBuffer
     }
 
-    case rfb @ ReadFromBuffer(_, _) => {
+    case rfb @ ReadFromBuffer(_, _) if connected => {
       readQueue = readQueue :+ (sender, rfb)
       sendQueued
     }
@@ -41,7 +44,11 @@ class AkkaThriftConnection(conn: ActorRef) extends Actor with ActorLogging with 
     }
 
     // This needs to be changed to an ack, but this gets it off the ground
-    case WriteData(data) => conn ! Tcp.Write(data, ack = Tcp.NoAck)
+    case WriteData(data) if connected => conn ! Tcp.Write(data, ack = Tcp.NoAck)
+
+    case _ if !connected => {
+      sender ! ConnectionClosed
+    }
   }
 
   // Make sure we store at least as much data as the request
