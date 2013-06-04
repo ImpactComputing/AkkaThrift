@@ -53,6 +53,8 @@ class AkkaTransport(conn: ActorRef) extends TTransport with AkkaThriftConfig {
       case Success(_:ConnectionClosed) =>
         throw new TTransportException(TTransportException.UNKNOWN)
 
+      case Success(_) => throw new TTransportException("Bad command")
+
       case Failure(ex) => 
         throwNewException(ex)
         -1 // Never actually evaluated
@@ -62,5 +64,7 @@ class AkkaTransport(conn: ActorRef) extends TTransport with AkkaThriftConfig {
   override def write(buf:Array[Byte], offset:Int, len:Int):Unit = {
     conn ! WriteData(ByteString(buf.slice(offset, offset+len)))
   }
+
+  def informOnRead(who:ActorRef) = conn ! InformCanRead(who)
 
 }

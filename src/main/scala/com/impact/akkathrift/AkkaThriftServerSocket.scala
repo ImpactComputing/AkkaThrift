@@ -86,13 +86,13 @@ class AkkaThriftServerActor(proto: TProtocolFactory, proc: TProcessorFactory) ex
   }
 }
 
-class AkkaThriftProcessorActor(protocol: TProtocol, processor: TProcessor, transport:TTransport) extends Actor with ActorLogging {
-  override def preStart:Unit = self ! 'Continue
+class AkkaThriftProcessorActor(protocol: TProtocol, processor: TProcessor, transport:AkkaTransport) extends Actor with ActorLogging {
+  override def preStart:Unit = transport.informOnRead(self)
   def receive = {
-    case 'Continue => 
+    case CanRead => 
       Try(processor.process(protocol, protocol)) match {
         case Success(true) =>
-          self ! 'Continue
+          transport.informOnRead(self)
         case Success(false) =>
           self ! 'Stop
         case Failure(ex:TTransportException) =>

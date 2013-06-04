@@ -8,6 +8,7 @@ import akka.pattern.ask
 import akka.io.Tcp
 
 class AkkaThriftConnection(conn: ActorRef) extends Actor with ActorLogging with AkkaThriftConfig {
+  var toInform: Option[ActorRef] = None
   var readQueue = Queue[(ActorRef, ReadFromBuffer)]()
   var readBuffer = ByteString()
   var connected = true
@@ -24,10 +25,16 @@ class AkkaThriftConnection(conn: ActorRef) extends Actor with ActorLogging with 
       readQueue.map(_._1).distinct.map(_ ! ConnectionClosed)
     }
 
+    case InformCanRead(who) => {
+      toInform = Some(who)
+      tryInform
+    }
+
     case Tcp.Received(data) => {
       readBuffer ++= data
       sendQueued
       manageReadBuffer
+      tryInform
     }
 
     case rfb @ ReadFromBuffer(_, _) if connected => {
@@ -85,6 +92,11 @@ class AkkaThriftConnection(conn: ActorRef) extends Actor with ActorLogging with 
       conn ! Tcp.ResumeReading
       receiving = true
     }
+  }
+
+  def tryInform = if(toInform.isDefined & readBuffer.length > 0) {
+    toInform.get ! CanRead
+    toInform = None
   }
     
 }
