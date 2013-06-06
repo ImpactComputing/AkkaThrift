@@ -8,7 +8,7 @@ import org.apache.thrift.protocol.TBinaryProtocol
 import org.apache.thrift.TProcessor
 
 import org.apache.thrift.transport.{TServerSocket,TNonblockingServerSocket}
-import org.apache.thrift.server.{TThreadedSelectorServer, TSimpleServer}
+import org.apache.thrift.server.{TThreadPoolServer, TSimpleServer}
 
 import com.impact.akkathrift._
 import test.thrift._
@@ -19,10 +19,11 @@ class TestImpl extends Test.Iface {
 
 object Driver {
   def threadedServer(port:Int) {
-    val socket = new TNonblockingServerSocket(port)
+    val socket = new TServerSocket(port)
     val processor = new Test.Processor(new TestImpl())
-    val server = new TThreadedSelectorServer(
-      new TThreadedSelectorServer.Args(socket).processor(processor))
+    val server = new TThreadPoolServer(
+      new TThreadPoolServer.Args(socket).processor(processor).maxWorkerThreads(10)
+    )
     
     server.serve()
 
@@ -42,5 +43,6 @@ object Driver {
   def main(args: Array[String]) {
     assert(args.nonEmpty)
     akkaServer(args.head.toInt)
+    //threadedServer(args.head.toInt)
   }
 }
