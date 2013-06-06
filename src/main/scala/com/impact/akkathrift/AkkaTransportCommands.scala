@@ -10,6 +10,7 @@ case class CloseConnection extends AkkaTransportRequests
 case class ReadFromBuffer(offset:Int, amount:Int) extends AkkaTransportRequests
 case class WriteData(data:ByteString) extends AkkaTransportRequests
 case class InformCanRead(who:ActorRef) extends AkkaTransportRequests
+case class Flush extends AkkaTransportRequests
 
 sealed trait AkkaTransportResponse
 case class ReadData(byte: ByteString) extends AkkaTransportResponse

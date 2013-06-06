@@ -10,9 +10,11 @@ import akka.io.Tcp
 class AkkaThriftConnection(conn: ActorRef) extends Actor with ActorLogging with AkkaThriftConfig {
   var toInform: Option[ActorRef] = None
   var readQueue = Queue[(ActorRef, ReadFromBuffer)]()
-  var readBuffer = ByteString()
+  var readBuffer = ByteString.empty
+  var writeBuffer = ByteString.empty
   var connected = true
   var receiving = true
+  var writing = false
 
   /* Start listening to the connection */
   override def preStart:Unit = {
@@ -22,10 +24,11 @@ class AkkaThriftConnection(conn: ActorRef) extends Actor with ActorLogging with 
   def receive = {
     case _:Tcp.ConnectionClosed => {
       connected = false
-      readQueue.map(_._1).distinct.map(_ ! ConnectionClosed)
+      readQueue.map(_._1).distinct.foreach(_ ! ConnectionClosed)
+      toInform.foreach(_ ! ConnectionClosed)
     }
 
-    case InformCanRead(who) => {
+    case InformCanRead(who) if connected => {
       toInform = Some(who)
       tryInform
     }
@@ -51,7 +54,25 @@ class AkkaThriftConnection(conn: ActorRef) extends Actor with ActorLogging with 
     }
 
     // This needs to be changed to an ack, but this gets it off the ground
-    case WriteData(data) if connected => conn ! Tcp.Write(data, ack = Tcp.NoAck)
+    case WriteData(data) if connected => {
+      writeBuffer ++= data
+      if(!writing) {
+        writing = true
+        self ! 'WriteSuccessful
+      }
+    }
+
+    case 'WriteSuccessful if connected & writeBuffer.nonEmpty => {
+      val (data, remaining) = writeBuffer.splitAt(1024)
+      conn ! Tcp.Write(data, ack = 'WriteSuccessful)
+      writeBuffer = remaining
+    }
+    case 'WriteSuccessful if connected => writing = false
+
+    case Flush if connected => {
+      conn ! Tcp.Write(writeBuffer, ack = 'WriteSuccessful)
+      writeBuffer = ByteString.empty
+    }
 
     case _ if !connected => {
       sender ! ConnectionClosed

@@ -91,15 +91,16 @@ class AkkaThriftProcessorActor(protocol: TProtocol, processor: TProcessor, trans
   def receive = {
     case CanRead => 
       Try(processor.process(protocol, protocol)) match {
-        case Success(true) =>
+        case Success(true) => {
+          transport.flush()
           transport.informOnRead(self)
-        case Success(false) =>
-          self ! 'Stop
-        case Failure(ex:TTransportException) =>
-          self ! 'Stop
-        case Failure(ex) =>
+        }
+        case Success(false) => self ! 'Stop
+        case Failure(ex:TTransportException) => self ! 'Stop
+        case Failure(ex) => {
           log.warning(s"Exception during processing: $ex")
           self ! 'Stop
+        }
       }
 
     case 'Stop =>

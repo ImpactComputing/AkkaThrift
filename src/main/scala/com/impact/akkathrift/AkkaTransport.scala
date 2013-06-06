@@ -40,6 +40,8 @@ class AkkaTransport(conn: ActorRef) extends TTransport with AkkaThriftConfig {
     isOpen()
   }
 
+  override def flush():Unit = conn ! Flush
+
   def close():Unit = {
     conn ! CloseConnection
   }
