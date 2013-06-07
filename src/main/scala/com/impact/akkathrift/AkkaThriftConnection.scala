@@ -7,14 +7,12 @@ import akka.util.{Timeout,ByteString}
 import akka.pattern.ask
 import akka.io.Tcp
 
-class AkkaThriftConnection(conn: ActorRef) extends Actor with ActorLogging with AkkaThriftConfig {
+class AkkaThriftReadConn(conn: ActorRef) extends Actor with ActorLogging with AkkaThriftConfig {
   var toInform: Option[ActorRef] = None
   var readQueue = Queue[(ActorRef, ReadFromBuffer)]()
   var readBuffer = ByteString.empty
-  var writeBuffer = ByteString.empty
   var connected = true
   var receiving = true
-  var writing = false
 
   /* Start listening to the connection */
   override def preStart:Unit = {
@@ -28,6 +26,11 @@ class AkkaThriftConnection(conn: ActorRef) extends Actor with ActorLogging with 
       tryInform
     }
 
+    // The common case
+    case ReadFromBuffer(off,amt) if readQueue.isEmpty & off+amt <= readBuffer.length => {
+      readBuffer = sendRead(off, amt, readBuffer, sender)
+    }
+
     case rfb @ ReadFromBuffer(_, _) => {
       readQueue = readQueue :+ (sender, rfb)
       sendQueued
@@ -38,26 +41,6 @@ class AkkaThriftConnection(conn: ActorRef) extends Actor with ActorLogging with 
       sendQueued
       manageReadBuffer
       tryInform
-    }
-
-    case WriteData(data) => {
-      writeBuffer ++= data
-      if(!writing) {
-        writing = true
-        self ! 'WriteSuccessful
-      }
-    }
-
-    case 'WriteSuccessful if writeBuffer.nonEmpty => {
-      val (data, remaining) = writeBuffer.splitAt(1024)
-      conn ! Tcp.Write(data, ack = 'WriteSuccessful)
-      writeBuffer = remaining
-    }
-    case 'WriteSuccessful => writing = false
-
-    case Flush => {
-      conn ! Tcp.Write(writeBuffer, ack = 'WriteSuccessful)
-      writeBuffer = ByteString.empty
     }
   }
 
@@ -70,7 +53,7 @@ class AkkaThriftConnection(conn: ActorRef) extends Actor with ActorLogging with 
 
     case ConnectionIsAlive => sender ! connected
 
-    case CloseConnection =>  {
+    case Shutdown =>  {
       conn ! Tcp.Close
       log.debug("Closing client connection")
       context.stop(self)
@@ -81,12 +64,18 @@ class AkkaThriftConnection(conn: ActorRef) extends Actor with ActorLogging with 
     }
   }
 
-  def receive = (isConnected andThen connCommands orElse safeCommands) orElse safeCommands
+  def receive = (isConnected andThen (connCommands orElse safeCommands)) orElse safeCommands
 
   // Make sure we store at least as much data as the request
   def maxBufferSize:Int = readQueue.headOption map {
     case (_, ReadFromBuffer(off,amt)) => (off+amt).max(readBufferSize)
   } getOrElse readBufferSize
+
+  @inline def sendRead(off:Int,amt:Int,buffer:ByteString, sender:ActorRef):ByteString = {
+    val end = off + amt
+    sender ! ReadData(buffer.slice(off, end))
+    buffer.drop(end)
+  }
 
   // Send out all queued read requests if we can
   def sendQueued = {
@@ -94,9 +83,7 @@ class AkkaThriftConnection(conn: ActorRef) extends Actor with ActorLogging with 
     @annotation.tailrec
     def loop(q:Q, b:ByteString):(Q,ByteString) = q.headOption match {
       case Some((s, ReadFromBuffer(off, amt))) if (off + amt) <= b.length =>
-        val end = off + amt
-        s ! ReadData(b.slice(off, end))
-        loop(q.tail, b.drop(end))
+        loop(q.tail, sendRead(off, amt, b, s))
 
       case _ => (q, b)
     }
@@ -124,4 +111,43 @@ class AkkaThriftConnection(conn: ActorRef) extends Actor with ActorLogging with 
     toInform = None
   }
     
+}
+
+class AkkaThriftWriteConn(conn: ActorRef) extends Actor with ActorLogging with AkkaThriftConfig {
+  var writeBuffer = ByteString.empty
+  var writing = false
+
+  def receive = { 
+    case WriteData(data) => {
+      writeBuffer ++= data
+      if(!writing) {
+        writing = true
+        self ! 'WriteSuccessful
+      }
+    }
+
+    case 'WriteSuccessful if writeBuffer.nonEmpty => {
+      val (data, remaining) = writeBuffer.splitAt(1024)
+      conn ! Tcp.Write(data, ack = 'WriteSuccessful)
+      writeBuffer = remaining
+    }
+
+    case 'WriteSuccessful => writing = false
+
+    case Flush if writeBuffer.nonEmpty => {
+      conn ! Tcp.Write(writeBuffer, ack = 'WriteSuccessful)
+      writeBuffer = ByteString.empty
+    }
+
+    case Shutdown => {
+      conn ! Tcp.Close
+      log.debug("Closing client writer connection")
+      context.stop(self)
+    }
+
+    case _ => {
+      sender ! ConnectionClosed
+    }
+  }
+
 }

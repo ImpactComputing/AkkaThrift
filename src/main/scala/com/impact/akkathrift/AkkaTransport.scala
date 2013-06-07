@@ -12,11 +12,11 @@ import akka.actor._
 import akka.util.{Timeout,ByteString}
 import akka.pattern.ask
 
-class AkkaTransport(conn: ActorRef) extends TTransport with AkkaThriftConfig {
+class AkkaTransport(reader: ActorRef, writer: ActorRef) extends TTransport with AkkaThriftConfig {
   implicit val timeout = Timeout(waitDelay)
 
   private[this] def isAlive:Try[Boolean] = {
-    Try(Await.result(conn ? ConnectionIsAlive, waitDelay).asInstanceOf[Boolean]) 
+    Try(Await.result(reader ? ConnectionIsAlive, waitDelay).asInstanceOf[Boolean]) 
   }
 
   @throws[TTransportException]("Some error occurred")
@@ -40,14 +40,15 @@ class AkkaTransport(conn: ActorRef) extends TTransport with AkkaThriftConfig {
     isOpen()
   }
 
-  override def flush():Unit = conn ! Flush
+  override def flush():Unit = writer ! Flush
 
   def close():Unit = {
-    conn ! CloseConnection
+    reader ! Shutdown
+    writer ! Shutdown
   }
 
   override def read(buf:Array[Byte], offset: Int, len:Int):Int= {
-    Try(Await.result(conn ? ReadFromBuffer(offset, len), waitDelay).asInstanceOf[AkkaTransportResponse]) match {
+    Try(Await.result(reader ? ReadFromBuffer(offset, len), waitDelay).asInstanceOf[AkkaTransportResponse]) match {
       case Success(ReadData(data)) => 
         data.asByteBuffer.get(buf)
         data.length
@@ -64,9 +65,9 @@ class AkkaTransport(conn: ActorRef) extends TTransport with AkkaThriftConfig {
   }
 
   override def write(buf:Array[Byte], offset:Int, len:Int):Unit = {
-    conn ! WriteData(ByteString(buf.slice(offset, offset+len)))
+    writer ! WriteData(ByteString(buf.slice(offset, offset+len)))
   }
 
-  def informOnRead(who:ActorRef) = conn ! InformCanRead(who)
+  def informOnRead(who:ActorRef) = reader ! InformCanRead(who)
 
 }

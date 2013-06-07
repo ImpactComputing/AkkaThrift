@@ -68,9 +68,9 @@ class AkkaThriftServerActor(proto: TProtocolFactory, proc: TProcessorFactory) ex
     case Tcp.Connected(_,_) => {
       log.debug("New connection, spawning new child...")
       val conn = sender
-      val child = context.watch(system.actorOf(Props(classOf[AkkaThriftConnection], conn)))
-      conn ! Tcp.Register(child)
-      startProcessor(child)
+      val reader = context.watch(system.actorOf(Props(classOf[AkkaThriftReadConn], conn)))
+      val writer = context.watch(system.actorOf(Props(classOf[AkkaThriftWriteConn], conn)))
+      startProcessor(reader,writer)
     }
 
     case Terminated(child) => {
@@ -78,8 +78,8 @@ class AkkaThriftServerActor(proto: TProtocolFactory, proc: TProcessorFactory) ex
     }
   }
 
-  def startProcessor(child:ActorRef) = {
-    val transport = new AkkaTransport(child)
+  def startProcessor(reader:ActorRef, writer:ActorRef) = {
+    val transport = new AkkaTransport(reader,writer)
     val processor = proc.getProcessor(transport)
     val protocol  = proto.getProtocol(transport)
     system.actorOf(Props(classOf[AkkaThriftProcessorActor], protocol, processor, transport))
