@@ -21,16 +21,16 @@ class AkkaThriftConnection(conn: ActorRef) extends Actor with ActorLogging with 
     conn ! Tcp.Register(self)
   }
 
-  def receive = {
-    case _:Tcp.ConnectionClosed => {
-      connected = false
-      readQueue.map(_._1).distinct.foreach(_ ! ConnectionClosed)
-      toInform.foreach(_ ! ConnectionClosed)
-    }
-
-    case InformCanRead(who) if connected => {
+  private[this] def isConnected:PartialFunction[Any,Any] = { case m if connected => m }
+  private[this] def connCommands:PartialFunction[Any,Unit] = {
+    case InformCanRead(who) => {
       toInform = Some(who)
       tryInform
+    }
+
+    case rfb @ ReadFromBuffer(_, _) => {
+      readQueue = readQueue :+ (sender, rfb)
+      sendQueued
     }
 
     case Tcp.Received(data) => {
@@ -40,11 +40,34 @@ class AkkaThriftConnection(conn: ActorRef) extends Actor with ActorLogging with 
       tryInform
     }
 
-    case rfb @ ReadFromBuffer(_, _) if connected => {
-      readQueue = readQueue :+ (sender, rfb)
-      sendQueued
+    case WriteData(data) => {
+      writeBuffer ++= data
+      if(!writing) {
+        writing = true
+        self ! 'WriteSuccessful
+      }
     }
-    
+
+    case 'WriteSuccessful if writeBuffer.nonEmpty => {
+      val (data, remaining) = writeBuffer.splitAt(1024)
+      conn ! Tcp.Write(data, ack = 'WriteSuccessful)
+      writeBuffer = remaining
+    }
+    case 'WriteSuccessful => writing = false
+
+    case Flush => {
+      conn ! Tcp.Write(writeBuffer, ack = 'WriteSuccessful)
+      writeBuffer = ByteString.empty
+    }
+  }
+
+  private[this] def safeCommands:PartialFunction[Any,Unit] = {
+    case _:Tcp.ConnectionClosed => {
+      connected = false
+      readQueue.map(_._1).distinct.foreach(_ ! ConnectionClosed)
+      toInform.foreach(_ ! ConnectionClosed)
+    }
+
     case ConnectionIsAlive => sender ! connected
 
     case CloseConnection =>  {
@@ -53,31 +76,12 @@ class AkkaThriftConnection(conn: ActorRef) extends Actor with ActorLogging with 
       context.stop(self)
     }
 
-    // This needs to be changed to an ack, but this gets it off the ground
-    case WriteData(data) if connected => {
-      writeBuffer ++= data
-      if(!writing) {
-        writing = true
-        self ! 'WriteSuccessful
-      }
-    }
-
-    case 'WriteSuccessful if connected & writeBuffer.nonEmpty => {
-      val (data, remaining) = writeBuffer.splitAt(1024)
-      conn ! Tcp.Write(data, ack = 'WriteSuccessful)
-      writeBuffer = remaining
-    }
-    case 'WriteSuccessful if connected => writing = false
-
-    case Flush if connected => {
-      conn ! Tcp.Write(writeBuffer, ack = 'WriteSuccessful)
-      writeBuffer = ByteString.empty
-    }
-
-    case _ if !connected => {
+    case _ => {
       sender ! ConnectionClosed
     }
   }
+
+  def receive = (isConnected andThen connCommands orElse safeCommands) orElse safeCommands
 
   // Make sure we store at least as much data as the request
   def maxBufferSize:Int = readQueue.headOption map {
