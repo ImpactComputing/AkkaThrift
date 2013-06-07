@@ -114,6 +114,7 @@ class AkkaThriftReadConn(conn: ActorRef) extends Actor with ActorLogging with Ak
 }
 
 class AkkaThriftWriteConn(conn: ActorRef) extends Actor with ActorLogging with AkkaThriftConfig {
+  object WriteSuccessful extends Tcp.Event
   var writeBuffer = ByteString.empty
   var writing = false
 
@@ -122,20 +123,20 @@ class AkkaThriftWriteConn(conn: ActorRef) extends Actor with ActorLogging with A
       writeBuffer ++= data
       if(!writing) {
         writing = true
-        self ! 'WriteSuccessful
+        self ! WriteSuccessful
       }
     }
 
-    case 'WriteSuccessful if writeBuffer.nonEmpty => {
+    case WriteSuccessful if writeBuffer.nonEmpty => {
       val (data, remaining) = writeBuffer.splitAt(1024)
-      conn ! Tcp.Write(data, ack = 'WriteSuccessful)
+      write(data)
       writeBuffer = remaining
     }
 
-    case 'WriteSuccessful => writing = false
+    case WriteSuccessful => writing = false
 
     case Flush if writeBuffer.nonEmpty => {
-      conn ! Tcp.Write(writeBuffer, ack = 'WriteSuccessful)
+      write(writeBuffer)
       writeBuffer = ByteString.empty
     }
 
@@ -149,5 +150,7 @@ class AkkaThriftWriteConn(conn: ActorRef) extends Actor with ActorLogging with A
       sender ! ConnectionClosed
     }
   }
+
+  def write(data:ByteString) = conn ! Tcp.Write(data, ack = WriteSuccessful)
 
 }
