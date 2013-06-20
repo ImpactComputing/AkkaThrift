@@ -3,9 +3,10 @@ AkkaThrift
 
 A Scala Akka.IO based Thrift server
 
-AkkaThrift provides a pure Akka based TCP server for handling a thrift file.  It provides a good way to use Thrift for external APIs while using Akka internally.
+AkkaThrift provides a pure Akka based TCP server for handling thrift services.  It provides a good way to use Thrift for external APIs while using Akka internally.
 
 Example Usage:
+
     import com.impact.akkathrift._
 
     implicit val actorSystem = AkkaThriftServer.actorSystem
