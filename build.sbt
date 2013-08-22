@@ -12,7 +12,7 @@ fork in run := true
 
 // Actual project details
 
-name := "AkkaThrift"
+name := "akka-thrift"
 
 version := "0.1"
 
